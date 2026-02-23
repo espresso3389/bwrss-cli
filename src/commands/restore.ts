@@ -4,10 +4,12 @@ import chalk from "chalk";
 import ora from "ora";
 import { findRepos, getCanonicalName } from "../core/repo.ts";
 import { readConfig, configExists } from "../core/config.ts";
-import { ensureUnlocked, sync, findBwrssItem, getAttachment } from "../core/bitwarden.ts";
-import { parsePayload, ATTACHMENT_FILENAME } from "../core/storage.ts";
+import { ensureUnlocked, sync } from "../core/bitwarden.ts";
 import { getParser } from "../parsers/index.ts";
 import { log } from "../util/logger.ts";
+import { setFileMode, modeToString } from "../util/permissions.ts";
+import { getMachineName } from "../core/machine.ts";
+import { mergePayloads, fetchPayload, fetchMachinePayload } from "../core/sync.ts";
 import type { FilePayload } from "../types/index.ts";
 
 export async function restoreCommand(dirs: string[], options: { dryRun?: boolean; force?: boolean }): Promise<void> {
@@ -32,9 +34,18 @@ export async function restoreCommand(dirs: string[], options: { dryRun?: boolean
     const canonicalName = config.name ?? await getCanonicalName(repoRoot);
     const noteName = `bwrss:${canonicalName}`;
 
+    // Check if any files are machine-specific
+    const hasMachineFiles = config.files.some((f) => f.machine);
+    let machineName: string | undefined;
+    if (hasMachineFiles) {
+      machineName = await getMachineName();
+    }
+
     if (options.dryRun) {
       console.log(chalk.bold(`[dry-run] Would restore from ${noteName}`));
-      // Still need BW to show what would be restored
+      if (machineName) {
+        console.log(chalk.bold(`[dry-run] Would also restore from ${noteName}@${machineName}`));
+      }
     }
 
     const spinner = ora(`Restoring secrets for ${canonicalName}...`).start();
@@ -43,28 +54,31 @@ export async function restoreCommand(dirs: string[], options: { dryRun?: boolean
       await ensureUnlocked();
       await sync();
 
-      const item = await findBwrssItem(canonicalName);
-      if (!item) {
-        spinner.fail(`No Bitwarden item found for ${noteName}`);
+      // Fetch shared payloads
+      spinner.text = "Downloading shared secrets...";
+      const sharedPayloads = await fetchPayload(canonicalName);
+
+      // Fetch machine-specific payloads if needed
+      let machinePayloads: FilePayload[] | null = null;
+      if (machineName) {
+        spinner.text = `Downloading machine secrets for ${machineName}...`;
+        machinePayloads = await fetchMachinePayload(canonicalName, machineName);
+      }
+
+      if (!sharedPayloads && !machinePayloads) {
+        spinner.fail(`No Bitwarden data found for ${noteName}`);
         continue;
       }
 
-      const attachment = item.attachments?.find((a) => a.fileName === ATTACHMENT_FILENAME);
-      if (!attachment) {
-        spinner.fail(`No data attachment found on ${noteName}`);
-        continue;
-      }
-
-      spinner.text = "Downloading attachment...";
-      const payloadJson = await getAttachment(item.id, attachment.id);
-      const payload = parsePayload(payloadJson);
+      // Merge shared + machine payloads
+      const allPayloads = mergePayloads(sharedPayloads ?? [], machinePayloads ?? []);
 
       spinner.stop();
 
       // Build a map of config file paths to their key patterns
       const configFileMap = new Map(config.files.map((f) => [f.path, f.keys]));
 
-      for (const filePayload of payload.files) {
+      for (const filePayload of allPayloads) {
         // Only restore files listed in the local config
         if (!configFileMap.has(filePayload.path)) {
           log.dim(`Skipping ${filePayload.path} (not in local .bwrss config)`);
@@ -86,12 +100,28 @@ export async function restoreCommand(dirs: string[], options: { dryRun?: boolean
           }
 
           if (options.dryRun) {
-            console.log(chalk.cyan(`  ${filePayload.path}`) + chalk.dim(` (full file, ${filePayload.content.length} bytes)`));
+            const encPart = filePayload.encoding === "base64" ? " [binary]" : "";
+            const modePart = filePayload.mode !== undefined ? ` ${modeToString(filePayload.mode)}` : "";
+            const size = filePayload.encoding === "base64"
+              ? Math.ceil(filePayload.content.length * 3 / 4)
+              : filePayload.content.length;
+            console.log(chalk.cyan(`  ${filePayload.path}`) + chalk.dim(`${modePart}${encPart} (full file, ${size} bytes)`));
             continue;
           }
 
-          await writeFile(filePath, filePayload.content, "utf-8");
-          log.success(`Restored ${filePayload.path}`);
+          // Decode content
+          const buf = filePayload.encoding === "base64"
+            ? Buffer.from(filePayload.content, "base64")
+            : Buffer.from(filePayload.content, "utf-8");
+
+          await writeFile(filePath, buf);
+
+          // Restore file permissions if present
+          if (filePayload.mode !== undefined) {
+            await setFileMode(filePath, filePayload.mode);
+          }
+
+          log.success(`Restored ${filePayload.path}` + (filePayload.mode !== undefined ? ` (${modeToString(filePayload.mode)})` : ""));
         } else if (filePayload.keys) {
           // Partial key merge
           const parser = getParser(filePayload.path);
@@ -115,6 +145,12 @@ export async function restoreCommand(dirs: string[], options: { dryRun?: boolean
 
           const merged = parser.merge(existingContent, filePayload.keys);
           await writeFile(filePath, merged, "utf-8");
+
+          // Restore file permissions if present
+          if (filePayload.mode !== undefined) {
+            await setFileMode(filePath, filePayload.mode);
+          }
+
           log.success(`Merged ${Object.keys(filePayload.keys).length} keys into ${filePayload.path}`);
         }
       }

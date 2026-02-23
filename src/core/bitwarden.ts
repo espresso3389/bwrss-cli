@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { writeFile, unlink } from "node:fs/promises";
 import { BitwardenError } from "../util/errors.ts";
-import type { BwItem } from "../types/index.ts";
+import type { BwItem, MachineInfo } from "../types/index.ts";
 
 /**
  * Run a `bw` CLI command and return stdout.
@@ -16,6 +16,22 @@ async function bw(...args: string[]): Promise<string> {
       resolve(stdout.trim());
     });
   });
+}
+
+/**
+ * Ensure a BW_SESSION is available. Call this before any `bw` command.
+ * If `session` is provided (from --bw-session), sets it in the environment.
+ * Throws if no session is found.
+ */
+export function ensureSession(session?: string): void {
+  if (session) {
+    process.env.BW_SESSION = session;
+  }
+  if (!process.env.BW_SESSION) {
+    throw new BitwardenError(
+      "No Bitwarden session found. Run 'bw unlock' and export BW_SESSION, or pass --bw-session.",
+    );
+  }
 }
 
 /**
@@ -120,4 +136,51 @@ export async function findBwrssItem(canonicalName: string): Promise<BwItem | nul
   const searchName = `bwrss:${canonicalName}`;
   const items = await searchItems(searchName);
   return items.find((i) => i.name === searchName) ?? null;
+}
+
+/**
+ * Find a machine-specific bwrss secure note: `bwrss:<name>@<machine>`.
+ */
+export async function findBwrssItemForMachine(canonicalName: string, machineName: string): Promise<BwItem | null> {
+  const searchName = `bwrss:${canonicalName}@${machineName}`;
+  const items = await searchItems(searchName);
+  return items.find((i) => i.name === searchName) ?? null;
+}
+
+/**
+ * Discover all known machines by searching Bitwarden for `bwrss:*@*` items.
+ * Extracts machine names and last save timestamps from item metadata.
+ */
+export async function discoverMachines(): Promise<MachineInfo[]> {
+  const items = await searchItems("bwrss:");
+  const machineMap = new Map<string, string>();
+
+  for (const item of items) {
+    const atIdx = item.name.indexOf("@");
+    if (atIdx === -1) continue;
+
+    const machineName = item.name.slice(atIdx + 1);
+    if (!machineName) continue;
+
+    // Parse timestamp from notes metadata
+    let timestamp = "";
+    if (item.notes) {
+      try {
+        const meta = JSON.parse(item.notes);
+        timestamp = meta.timestamp ?? "";
+      } catch {
+        // invalid metadata
+      }
+    }
+
+    // Keep the most recent timestamp per machine
+    const existing = machineMap.get(machineName);
+    if (!existing || timestamp > existing) {
+      machineMap.set(machineName, timestamp);
+    }
+  }
+
+  return Array.from(machineMap.entries())
+    .map(([name, lastSave]) => ({ name, lastSave }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

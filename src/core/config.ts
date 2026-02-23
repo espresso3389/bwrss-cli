@@ -42,7 +42,7 @@ export async function writeConfig(repoRoot: string, config: BwrssConfig): Promis
 /**
  * Validate parsed config object.
  */
-function validateConfig(obj: unknown): BwrssConfig {
+export function validateConfig(obj: unknown): BwrssConfig {
   if (!obj || typeof obj !== "object") {
     throw new ConfigError("Invalid .bwrss config: not an object");
   }
@@ -63,14 +63,28 @@ function validateConfig(obj: unknown): BwrssConfig {
     if (file.keys !== undefined && !Array.isArray(file.keys)) {
       throw new ConfigError(`Invalid .bwrss config: 'keys' for ${file.path} must be an array`);
     }
+    if (file.machine !== undefined && typeof file.machine !== "boolean") {
+      throw new ConfigError(`Invalid .bwrss config: 'machine' for ${file.path} must be a boolean`);
+    }
   }
+
+  // Support both camelCase and kebab-case for ignored files
+  const ignoredRaw = config["ignored-files"] ?? config["ignoredFiles"];
+  if (ignoredRaw !== undefined && !Array.isArray(ignoredRaw)) {
+    throw new ConfigError("Invalid config: 'ignored-files' must be an array of strings");
+  }
+  const ignoredFiles = Array.isArray(ignoredRaw)
+    ? ignoredRaw.filter((s: unknown) => typeof s === "string") as string[]
+    : undefined;
 
   return {
     version: 1,
     name: typeof config.name === "string" ? config.name : undefined,
-    files: config.files.map((f: { path: string; keys?: string[] }) => ({
+    files: config.files.map((f: { path: string; keys?: string[]; machine?: boolean }) => ({
       path: f.path,
       ...(f.keys ? { keys: f.keys } : {}),
+      ...(f.machine ? { machine: true } : {}),
     })),
+    ...(ignoredFiles && ignoredFiles.length > 0 ? { ignoredFiles } : {}),
   };
 }
