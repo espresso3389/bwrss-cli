@@ -63,7 +63,7 @@ bun install -g bwrss-cli
 #### Build from source
 
 ```bash
-git clone https://github.com/espresso3389/bwrss && cd bw-secret-sync
+git clone https://github.com/espresso3389/bwrss-cli && cd bwrss-cli
 bun install
 bun run build          # builds dist/index.js (runs on Node)
 bun run build:bun      # builds standalone binary (no runtime needed)
