@@ -1,4 +1,5 @@
-import { resolve } from "path";
+import { resolve } from "node:path";
+import { readFile, writeFile, access } from "node:fs/promises";
 import chalk from "chalk";
 import ora from "ora";
 import { findRepos, getCanonicalName } from "../core/repo.ts";
@@ -71,7 +72,7 @@ export async function restoreCommand(dirs: string[], options: { dryRun?: boolean
         }
 
         const filePath = resolve(repoRoot, filePayload.path);
-        const fileExists = await Bun.file(filePath).exists();
+        const fileExists = await access(filePath).then(() => true, () => false);
 
         if (filePayload.content !== undefined) {
           // Full file restore
@@ -89,7 +90,7 @@ export async function restoreCommand(dirs: string[], options: { dryRun?: boolean
             continue;
           }
 
-          await Bun.write(filePath, filePayload.content);
+          await writeFile(filePath, filePayload.content, "utf-8");
           log.success(`Restored ${filePayload.path}`);
         } else if (filePayload.keys) {
           // Partial key merge
@@ -109,11 +110,11 @@ export async function restoreCommand(dirs: string[], options: { dryRun?: boolean
 
           let existingContent = "";
           if (fileExists) {
-            existingContent = await Bun.file(filePath).text();
+            existingContent = await readFile(filePath, "utf-8");
           }
 
           const merged = parser.merge(existingContent, filePayload.keys);
-          await Bun.write(filePath, merged);
+          await writeFile(filePath, merged, "utf-8");
           log.success(`Merged ${Object.keys(filePayload.keys).length} keys into ${filePayload.path}`);
         }
       }

@@ -1,5 +1,6 @@
-import { resolve, basename } from "path";
-import { stat, readdir } from "fs/promises";
+import { resolve, basename } from "node:path";
+import { stat, readdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { SKIP_DIRS } from "../util/patterns.ts";
 
 /**
@@ -59,16 +60,13 @@ export async function findRepos(dir: string): Promise<string[]> {
  */
 export async function getCanonicalName(repoRoot: string): Promise<string> {
   try {
-    const proc = Bun.spawn(["git", "remote", "get-url", "origin"], {
-      cwd: repoRoot,
-      stdout: "pipe",
-      stderr: "pipe",
+    const output = await new Promise<string>((resolve, reject) => {
+      execFile("git", ["remote", "get-url", "origin"], { cwd: repoRoot }, (error, stdout) => {
+        if (error) return reject(error);
+        resolve(stdout.trim());
+      });
     });
-    const output = await new Response(proc.stdout).text();
-    const exitCode = await proc.exited;
-    if (exitCode === 0 && output.trim()) {
-      return normalizeRemoteUrl(output.trim());
-    }
+    if (output) return normalizeRemoteUrl(output);
   } catch {
     // no git remote
   }

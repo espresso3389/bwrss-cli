@@ -1,4 +1,5 @@
-import { resolve } from "path";
+import { resolve } from "node:path";
+import { readFile, access } from "node:fs/promises";
 import chalk from "chalk";
 import ora from "ora";
 import { findRepos, getCanonicalName } from "../core/repo.ts";
@@ -36,14 +37,13 @@ export async function saveCommand(dirs: string[], options: { dryRun?: boolean })
 
     for (const managedFile of config.files) {
       const filePath = resolve(repoRoot, managedFile.path);
-      const file = Bun.file(filePath);
 
-      if (!(await file.exists())) {
+      if (!(await access(filePath).then(() => true, () => false))) {
         log.warn(`File not found: ${managedFile.path}, skipping.`);
         continue;
       }
 
-      const content = await file.text();
+      const content = await readFile(filePath, "utf-8");
 
       if (managedFile.keys && managedFile.keys.length > 0) {
         // Partial: extract only specified keys

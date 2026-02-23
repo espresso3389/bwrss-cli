@@ -44,22 +44,20 @@ bw status | jq .status
 
 ### 3. Install bwrss
 
-Run directly without installing (requires bun):
+Run directly without installing:
 
 ```bash
-bunx bwrss <command>
+npx bwrss-cli <command>
+# or
+bunx bwrss-cli <command>
 ```
 
-Or install globally:
+Or install globally (the command is `bwrss`):
 
 ```bash
-bun install -g bwrss
-```
-
-`npx` also works if you have bun installed (the shebang uses `#!/usr/bin/env bun`):
-
-```bash
-npx bwrss <command>
+npm install -g bwrss-cli
+# or
+bun install -g bwrss-cli
 ```
 
 #### Build from source
@@ -67,10 +65,8 @@ npx bwrss <command>
 ```bash
 git clone https://github.com/espresso3389/bwrss && cd bw-secret-sync
 bun install
-bun run build
-
-# The compiled binary is at ./bwrss — no bun needed at runtime
-cp bwrss ~/.local/bin/
+bun run build          # builds dist/index.js (runs on Node)
+bun run build:bun      # builds standalone binary (no runtime needed)
 ```
 
 ## Usage

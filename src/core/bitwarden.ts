@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { writeFile, unlink } from "node:fs/promises";
 import { BitwardenError } from "../util/errors.ts";
 import type { BwItem } from "../types/index.ts";
 
@@ -5,18 +7,15 @@ import type { BwItem } from "../types/index.ts";
  * Run a `bw` CLI command and return stdout.
  */
 async function bw(...args: string[]): Promise<string> {
-  const proc = Bun.spawn(["bw", ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env },
+  return new Promise((resolve, reject) => {
+    execFile("bw", args, { env: process.env, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new BitwardenError(`bw ${args.join(" ")} failed (exit ${error.code}): ${stderr.trim()}`));
+        return;
+      }
+      resolve(stdout.trim());
+    });
   });
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    throw new BitwardenError(`bw ${args.join(" ")} failed (exit ${exitCode}): ${stderr.trim()}`);
-  }
-  return stdout.trim();
 }
 
 /**
@@ -98,13 +97,11 @@ export async function setAttachment(itemId: string, fileName: string, content: s
 
   // Write to temp file, attach, clean up
   const tmpPath = `/tmp/bwrss-${Date.now()}-${fileName}`;
-  await Bun.write(tmpPath, content);
+  await writeFile(tmpPath, content, "utf-8");
   try {
     await bw("create", "attachment", "--file", tmpPath, "--itemid", itemId);
   } finally {
-    await Bun.file(tmpPath).exists().then((exists) => {
-      if (exists) Bun.spawn(["rm", tmpPath]);
-    });
+    await unlink(tmpPath).catch(() => {});
   }
 }
 

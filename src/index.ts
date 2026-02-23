@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 import { Command } from "commander";
 import { scanCommand } from "./commands/scan.ts";
 import { initCommand } from "./commands/init.ts";

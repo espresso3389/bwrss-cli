@@ -1,4 +1,5 @@
-import { resolve } from "path";
+import { resolve } from "node:path";
+import { readFile, writeFile, access } from "node:fs/promises";
 import YAML from "yaml";
 import type { BwrssConfig } from "../types/index.ts";
 import { ConfigError } from "../util/errors.ts";
@@ -13,7 +14,7 @@ export function configPath(repoRoot: string): string {
  * Check if a .bwrss config exists in the repo.
  */
 export async function configExists(repoRoot: string): Promise<boolean> {
-  return Bun.file(configPath(repoRoot)).exists();
+  return access(configPath(repoRoot)).then(() => true, () => false);
 }
 
 /**
@@ -21,11 +22,10 @@ export async function configExists(repoRoot: string): Promise<boolean> {
  */
 export async function readConfig(repoRoot: string): Promise<BwrssConfig> {
   const path = configPath(repoRoot);
-  const file = Bun.file(path);
-  if (!(await file.exists())) {
+  if (!(await configExists(repoRoot))) {
     throw new ConfigError(`No .bwrss config found at ${path}`);
   }
-  const text = await file.text();
+  const text = await readFile(path, "utf-8");
   const parsed = YAML.parse(text);
   return validateConfig(parsed);
 }
@@ -36,7 +36,7 @@ export async function readConfig(repoRoot: string): Promise<BwrssConfig> {
 export async function writeConfig(repoRoot: string, config: BwrssConfig): Promise<void> {
   const path = configPath(repoRoot);
   const text = YAML.stringify(config, { indent: 2 });
-  await Bun.write(path, text);
+  await writeFile(path, text, "utf-8");
 }
 
 /**
