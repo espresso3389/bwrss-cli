@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("bwrss")
   .description("Bitwarden Repository Settings Sync — manage git repo secrets via Bitwarden")
-  .version("0.1.0")
+  .version("0.1.1")
   .option("--bw-session <session>", "Bitwarden session key (alternative to BW_SESSION env var)");
 
 /**

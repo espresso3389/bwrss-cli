@@ -1,6 +1,6 @@
 {
   "name": "bwrss-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bitwarden Repository Settings Sync — manage git repo secrets via Bitwarden",
   "type": "module",
   "bin": {
